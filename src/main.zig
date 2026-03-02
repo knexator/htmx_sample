@@ -16,11 +16,17 @@ pub fn main() !void {
 
     var router = try server.router(.{});
     router.get("/", getIndex, .{});
+    router.get("/contacts", getContacts, .{});
 
     std.log.info("Listening at http://localhost:5882", .{});
     try server.listen();
 }
 
 fn getIndex(_: *httpz.Request, res: *httpz.Response) !void {
-    try res.writer().writeAll("Hello World!");
+    res.status = 302;
+    res.header("Location", "/contacts");
+}
+
+fn getContacts(_: *httpz.Request, res: *httpz.Response) !void {
+    res.body = "List of contacts";
 }
