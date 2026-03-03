@@ -5,7 +5,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const Contact = struct {
-    id: u32,
+    id: ?u64 = null,
     first: ?[]const u8 = null,
     last: ?[]const u8 = null,
     phone: ?[]const u8 = null,
@@ -64,7 +64,7 @@ pub fn main() !void {
         },
     });
 
-    var server = try httpz.Server(*App).init(allocator, .{ .port = 5882 }, &app);
+    var server = try httpz.Server(*App).init(allocator, .{ .port = 5882, .request = .{ .max_form_count = 0x100 } }, &app);
     defer {
         server.stop();
         server.deinit();
@@ -74,6 +74,7 @@ pub fn main() !void {
     router.get("/", getIndex, .{});
     router.get("/contacts", getContacts, .{});
     router.get("/contacts/new", getNewContact, .{});
+    router.post("/contacts/new", postNewContact, .{});
 
     // TODO(platform): general solution for static files
     router.get("/static/site.css", getStatic, .{
@@ -93,6 +94,38 @@ const App = struct {
 
     pub fn deinit(app: *App) void {
         app.contacts.deinit();
+    }
+
+    pub fn validate(app: *const App, contact: *Contact) bool {
+        if (contact.email == null or contact.email.?.len == 0) {
+            contact.errors.email = "Email Required";
+        }
+        const existing_contact = for (app.contacts.items) |c| {
+            if (c.id != contact.id and std.mem.eql(u8, c.email.?, contact.email orelse continue)) {
+                break true;
+            }
+        } else false;
+        if (existing_contact) {
+            contact.errors.email = "Email Must Be Unique";
+        }
+        return contact.errors.email == null;
+    }
+
+    pub fn save(app: *App, contact: *Contact) !bool {
+        if (!app.validate(contact)) {
+            return false;
+        }
+        if (contact.id == null) {
+            var max_id: u64 = 1;
+            for (app.contacts.items) |c| {
+                max_id = @max(max_id, c.id.?);
+            }
+            contact.id = max_id + 1;
+            try app.contacts.append(contact.*);
+        }
+        // TODO(never)
+        // try app.save_db();
+        return true;
     }
 
     pub fn search(app: *const App, allocator: Allocator, query: []const u8) ![]Contact {
@@ -115,9 +148,13 @@ fn getStatic(_: *App, req: *httpz.Request, res: *httpz.Response) !void {
     res.body = @as(*const []const u8, @alignCast(@ptrCast(req.route_data.?))).*;
 }
 
-fn getIndex(_: *App, _: *httpz.Request, res: *httpz.Response) !void {
+fn redirect(res: *httpz.Response, url: []const u8) void {
     res.status = 302;
-    res.header("Location", "/contacts");
+    res.header("Location", url);
+}
+
+fn getIndex(_: *App, _: *httpz.Request, res: *httpz.Response) !void {
+    redirect(res, "/contacts");
 }
 
 fn getContacts(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
@@ -136,8 +173,28 @@ fn getContacts(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
 
 fn getNewContact(_: *App, _: *httpz.Request, res: *httpz.Response) !void {
     res.body = try Templates.newContact(res.arena, .{
-        .contact = .{ .id = undefined },
+        .contact = .{},
     });
+}
+
+fn postNewContact(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
+    const form_data = try req.formData();
+    var c: Contact = .{
+        .id = null,
+        .first = form_data.get("first_name"),
+        .last = form_data.get("last_name"),
+        .phone = form_data.get("phone"),
+        .email = form_data.get("email"),
+    };
+    if (try app.save(&c)) {
+        // TODO(now)
+        // flash("Created New Contact!")
+        redirect(res, "/contacts");
+    } else {
+        res.body = try Templates.newContact(res.arena, .{
+            .contact = c,
+        });
+    }
 }
 
 const Templates = struct {
@@ -247,7 +304,7 @@ const Templates = struct {
                         \\                <td><a href="/contacts/{[id]d}/edit">Edit</a> <a href="/contacts/{[id]d}">View</a></td>
                         \\            </tr>
                     , .{
-                        .id = contact.id,
+                        .id = contact.id.?,
                         .email = contact.email orelse "",
                         .first = contact.first orelse "",
                         .last = contact.last orelse "",
