@@ -213,17 +213,21 @@ fn getContacts(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
         else
             app.contacts.items;
 
-    res.body = try Templates.contacts(res.arena, .{
-        .contacts = contacts,
-        .search_query = query.get("q"),
+    res.body = try Templates.layout(res.arena, .{
         .flashed_messages = try app.pending_flashed_messages.toOwnedSlice(),
+        .content = try Templates.contacts(res.arena, .{
+            .contacts = contacts,
+            .search_query = query.get("q"),
+        }),
     });
 }
 
 fn getNewContact(app: *App, _: *httpz.Request, res: *httpz.Response) !void {
-    res.body = try Templates.newContact(res.arena, .{
-        .contact = .{},
+    res.body = try Templates.layout(res.arena, .{
         .flashed_messages = try app.pending_flashed_messages.toOwnedSlice(),
+        .content = try Templates.newContact(res.arena, .{
+            .contact = .{},
+        }),
     });
 }
 
@@ -240,18 +244,22 @@ fn postNewContact(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
         try app.pending_flashed_messages.append("Created New Contact!");
         redirect(res, "/contacts");
     } else {
-        res.body = try Templates.newContact(res.arena, .{
-            .contact = c,
+        res.body = try Templates.layout(res.arena, .{
             .flashed_messages = try app.pending_flashed_messages.toOwnedSlice(),
+            .content = try Templates.newContact(res.arena, .{
+                .contact = c,
+            }),
         });
     }
 }
 
 fn getEditContact(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
     const contact = app.find(try std.fmt.parseInt(u64, req.param("id").?, 10)) orelse return error.ContactNotFound;
-    res.body = try Templates.editContact(res.arena, .{
-        .contact = contact,
+    res.body = try Templates.layout(res.arena, .{
         .flashed_messages = try app.pending_flashed_messages.toOwnedSlice(),
+        .content = try Templates.editContact(res.arena, .{
+            .contact = contact,
+        }),
     });
 }
 
@@ -267,9 +275,11 @@ fn postEditContact(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
         try app.pending_flashed_messages.append("Updated Contact!");
         redirect(res, try std.fmt.allocPrint(res.arena, "/contacts/{d}", .{contact.id.?}));
     } else {
-        res.body = try Templates.editContact(res.arena, .{
-            .contact = contact,
+        res.body = try Templates.layout(res.arena, .{
             .flashed_messages = try app.pending_flashed_messages.toOwnedSlice(),
+            .content = try Templates.editContact(res.arena, .{
+                .contact = contact,
+            }),
         });
     }
 }
@@ -283,9 +293,11 @@ fn deleteContact(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
 
 fn viewContact(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
     const contact = app.find(try std.fmt.parseInt(u64, req.param("id").?, 10)) orelse return error.ContactNotFound;
-    res.body = try Templates.showContact(res.arena, .{
-        .contact = contact,
+    res.body = try Templates.layout(res.arena, .{
         .flashed_messages = try app.pending_flashed_messages.toOwnedSlice(),
+        .content = try Templates.showContact(res.arena, .{
+            .contact = contact,
+        }),
     });
 }
 
@@ -350,9 +362,8 @@ const Templates = struct {
     pub fn contacts(arena: Allocator, params: struct {
         search_query: ?[]const u8,
         contacts: []const Contact,
-        flashed_messages: []const []const u8,
     }) ![]const u8 {
-        const content = try std.fmt.allocPrint(arena,
+        return try std.fmt.allocPrint(arena,
             \\    <form action="/contacts" method="get">
             \\        <fieldset>
             \\            <legend>Contact Search</legend>
@@ -406,17 +417,12 @@ const Templates = struct {
                 }
             }.anon),
         });
-        return try layout(arena, .{
-            .flashed_messages = params.flashed_messages,
-            .content = content,
-        });
     }
 
     pub fn newContact(arena: Allocator, params: struct {
         contact: Contact,
-        flashed_messages: []const []const u8,
     }) ![]const u8 {
-        const content = try std.fmt.allocPrint(arena,
+        return try std.fmt.allocPrint(arena,
             \\<form action="/contacts/new" method="post">
             \\    <fieldset>
             \\        <legend>Contact Values</legend>
@@ -459,18 +465,12 @@ const Templates = struct {
             .phone = params.contact.phone orelse "",
             .errors_phone = params.contact.errors.phone orelse "",
         });
-
-        return try layout(arena, .{
-            .flashed_messages = params.flashed_messages,
-            .content = content,
-        });
     }
 
     pub fn showContact(arena: Allocator, params: struct {
         contact: Contact,
-        flashed_messages: []const []const u8,
     }) ![]const u8 {
-        const content = try std.fmt.allocPrint(arena,
+        return try std.fmt.allocPrint(arena,
             \\ <h1>{[first]s} {[last]s}</h1>
             \\ 
             \\ <div>
@@ -489,18 +489,12 @@ const Templates = struct {
             .phone = params.contact.phone orelse "",
             .id = params.contact.id.?,
         });
-
-        return try layout(arena, .{
-            .flashed_messages = params.flashed_messages,
-            .content = content,
-        });
     }
 
     pub fn editContact(arena: Allocator, params: struct {
         contact: Contact,
-        flashed_messages: []const []const u8,
     }) ![]const u8 {
-        const content = try std.fmt.allocPrint(arena,
+        return try std.fmt.allocPrint(arena,
             \\ <form action="/contacts/{[id]d}/edit" method="post">
             \\     <fieldset>
             \\         <legend>Contact Values</legend>
@@ -549,11 +543,6 @@ const Templates = struct {
             .phone = params.contact.phone orelse "",
             .errors_phone = params.contact.errors.phone orelse "",
             .id = params.contact.id.?,
-        });
-
-        return try layout(arena, .{
-            .flashed_messages = params.flashed_messages,
-            .content = content,
         });
     }
 };
