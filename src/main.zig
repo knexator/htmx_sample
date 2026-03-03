@@ -77,6 +77,7 @@ pub fn main() !void {
     router.post("/contacts/new", postNewContact, .{});
     router.get("/contacts/:id", viewContact, .{});
     router.get("/contacts/:id/edit", getEditContact, .{});
+    router.post("/contacts/:id/edit", postEditContact, .{});
 
     // TODO(platform): general solution for static files
     router.get("/static/site.css", getStatic, .{
@@ -131,10 +132,30 @@ const App = struct {
             }
             contact.id = max_id + 1;
             try app.contacts.append(contact.*);
+        } else {
+            for (app.contacts.items) |*c| {
+                if (c.id == contact.id.?) {
+                    c.* = contact.*;
+                    break;
+                }
+            } else unreachable;
         }
         // TODO(never)
         // try app.save_db();
         return true;
+    }
+
+    pub fn update(app: *App, contact: *Contact, data: struct {
+        first: ?[]const u8,
+        last: ?[]const u8,
+        phone: ?[]const u8,
+        email: ?[]const u8,
+    }) !bool {
+        contact.first = data.first;
+        contact.last = data.last;
+        contact.phone = data.phone;
+        contact.email = data.email;
+        return app.save(contact);
     }
 
     pub fn search(app: *const App, allocator: Allocator, query: []const u8) ![]Contact {
@@ -224,6 +245,25 @@ fn getEditContact(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
         .contact = contact,
         .flashed_messages = try app.pending_flashed_messages.toOwnedSlice(),
     });
+}
+
+fn postEditContact(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
+    var contact = app.find(try std.fmt.parseInt(u64, req.param("id").?, 10)) orelse return error.ContactNotFound;
+    const form_data = try req.formData();
+    if (try app.update(&contact, .{
+        .first = form_data.get("first_name"),
+        .last = form_data.get("last_name"),
+        .phone = form_data.get("phone"),
+        .email = form_data.get("email"),
+    })) {
+        try app.pending_flashed_messages.append("Updated Contact!");
+        redirect(res, try std.fmt.allocPrint(res.arena, "/contacts/{d}", .{contact.id.?}));
+    } else {
+        res.body = try Templates.editContact(res.arena, .{
+            .contact = contact,
+            .flashed_messages = try app.pending_flashed_messages.toOwnedSlice(),
+        });
+    }
 }
 
 fn viewContact(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
