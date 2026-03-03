@@ -78,6 +78,7 @@ pub fn main() !void {
     router.get("/contacts/:id", viewContact, .{});
     router.get("/contacts/:id/edit", getEditContact, .{});
     router.post("/contacts/:id/edit", postEditContact, .{});
+    router.post("/contacts/:id/delete", deleteContact, .{});
 
     // TODO(platform): general solution for static files
     router.get("/static/site.css", getStatic, .{
@@ -182,6 +183,13 @@ const App = struct {
             }
         } else return null;
     }
+
+    pub fn delete(app: *App, contact: Contact) void {
+        const index = for (app.contacts.items, 0..) |c, k| {
+            if (c.id.? == contact.id.?) break k;
+        } else unreachable;
+        _ = app.contacts.orderedRemove(index);
+    }
 };
 
 fn getStatic(_: *App, req: *httpz.Request, res: *httpz.Response) !void {
@@ -264,6 +272,13 @@ fn postEditContact(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
             .flashed_messages = try app.pending_flashed_messages.toOwnedSlice(),
         });
     }
+}
+
+fn deleteContact(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
+    const contact = app.find(try std.fmt.parseInt(u64, req.param("id").?, 10)) orelse return error.ContactNotFound;
+    app.delete(contact);
+    try app.pending_flashed_messages.append("Deleted Contact!");
+    redirect(res, "/contacts");
 }
 
 fn viewContact(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
