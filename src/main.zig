@@ -219,7 +219,7 @@ fn postNewContact(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
 }
 
 fn getEditContact(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
-    const contact = app.find(try std.fmt.parseInt(u64, req.param("id").?, 10)) orelse unreachable;
+    const contact = app.find(try std.fmt.parseInt(u64, req.param("id").?, 10)) orelse return error.ContactNotFound;
     res.body = try Templates.editContact(res.arena, .{
         .contact = contact,
         .flashed_messages = try app.pending_flashed_messages.toOwnedSlice(),
@@ -227,12 +227,11 @@ fn getEditContact(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
 }
 
 fn viewContact(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
-    if (app.find(try std.fmt.parseInt(u64, req.param("id").?, 10))) |contact| {
-        res.body = try Templates.showContact(res.arena, .{
-            .contact = contact,
-            .flashed_messages = try app.pending_flashed_messages.toOwnedSlice(),
-        });
-    } else unreachable;
+    const contact = app.find(try std.fmt.parseInt(u64, req.param("id").?, 10)) orelse return error.ContactNotFound;
+    res.body = try Templates.showContact(res.arena, .{
+        .contact = contact,
+        .flashed_messages = try app.pending_flashed_messages.toOwnedSlice(),
+    });
 }
 
 const Templates = struct {
