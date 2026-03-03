@@ -86,14 +86,20 @@ pub fn main() !void {
 }
 
 const App = struct {
+    // TODO(platform): this state should be unique to each user
     contacts: std.ArrayList(Contact),
+    pending_flashed_messages: std.ArrayList([]const u8),
 
     pub fn init(gpa: Allocator) App {
-        return .{ .contacts = .init(gpa) };
+        return .{
+            .contacts = .init(gpa),
+            .pending_flashed_messages = .init(gpa),
+        };
     }
 
     pub fn deinit(app: *App) void {
         app.contacts.deinit();
+        app.pending_flashed_messages.deinit();
     }
 
     pub fn validate(app: *const App, contact: *Contact) bool {
@@ -168,12 +174,14 @@ fn getContacts(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
     res.body = try Templates.contacts(res.arena, .{
         .contacts = contacts,
         .search_query = query.get("q"),
+        .flashed_messages = try app.pending_flashed_messages.toOwnedSlice(),
     });
 }
 
-fn getNewContact(_: *App, _: *httpz.Request, res: *httpz.Response) !void {
+fn getNewContact(app: *App, _: *httpz.Request, res: *httpz.Response) !void {
     res.body = try Templates.newContact(res.arena, .{
         .contact = .{},
+        .flashed_messages = try app.pending_flashed_messages.toOwnedSlice(),
     });
 }
 
@@ -187,12 +195,12 @@ fn postNewContact(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
         .email = form_data.get("email"),
     };
     if (try app.save(&c)) {
-        // TODO(now)
-        // flash("Created New Contact!")
+        try app.pending_flashed_messages.append("Created New Contact!");
         redirect(res, "/contacts");
     } else {
         res.body = try Templates.newContact(res.arena, .{
             .contact = c,
+            .flashed_messages = try app.pending_flashed_messages.toOwnedSlice(),
         });
     }
 }
@@ -258,6 +266,7 @@ const Templates = struct {
     pub fn contacts(arena: Allocator, params: struct {
         search_query: ?[]const u8,
         contacts: []const Contact,
+        flashed_messages: []const []const u8,
     }) ![]const u8 {
         const content = try std.fmt.allocPrint(arena,
             \\    <form action="/contacts" method="get">
@@ -314,13 +323,14 @@ const Templates = struct {
             }.anon),
         });
         return try layout(arena, .{
-            .flashed_messages = &.{},
+            .flashed_messages = params.flashed_messages,
             .content = content,
         });
     }
 
     pub fn newContact(arena: Allocator, params: struct {
         contact: Contact,
+        flashed_messages: []const []const u8,
     }) ![]const u8 {
         const content = try std.fmt.allocPrint(arena,
             \\<form action="/contacts/new" method="post">
@@ -367,7 +377,7 @@ const Templates = struct {
         });
 
         return try layout(arena, .{
-            .flashed_messages = &.{},
+            .flashed_messages = params.flashed_messages,
             .content = content,
         });
     }
