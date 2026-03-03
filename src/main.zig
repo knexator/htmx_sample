@@ -76,6 +76,7 @@ pub fn main() !void {
     router.get("/contacts/new", getNewContact, .{});
     router.post("/contacts/new", postNewContact, .{});
     router.get("/contacts/:id", viewContact, .{});
+    router.get("/contacts/:id/edit", getEditContact, .{});
 
     // TODO(platform): general solution for static files
     router.get("/static/site.css", getStatic, .{
@@ -215,6 +216,14 @@ fn postNewContact(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
             .flashed_messages = try app.pending_flashed_messages.toOwnedSlice(),
         });
     }
+}
+
+fn getEditContact(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
+    const contact = app.find(try std.fmt.parseInt(u64, req.param("id").?, 10)) orelse unreachable;
+    res.body = try Templates.editContact(res.arena, .{
+        .contact = contact,
+        .flashed_messages = try app.pending_flashed_messages.toOwnedSlice(),
+    });
 }
 
 fn viewContact(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
@@ -424,6 +433,67 @@ const Templates = struct {
             .first = params.contact.first orelse "",
             .last = params.contact.last orelse "",
             .phone = params.contact.phone orelse "",
+            .id = params.contact.id.?,
+        });
+
+        return try layout(arena, .{
+            .flashed_messages = params.flashed_messages,
+            .content = content,
+        });
+    }
+
+    pub fn editContact(arena: Allocator, params: struct {
+        contact: Contact,
+        flashed_messages: []const []const u8,
+    }) ![]const u8 {
+        const content = try std.fmt.allocPrint(arena,
+            \\ <form action="/contacts/{[id]d}/edit" method="post">
+            \\     <fieldset>
+            \\         <legend>Contact Values</legend>
+            \\         <div class="table rows">
+            \\             <p>
+            \\                 <label for="email">Email</label>
+            \\                 <input name="email" id="email" type="text" placeholder="Email" value="{[email]s}">
+            \\                 <span class="error">{[errors_email]s}</span>
+            \\             </p>
+            \\             <p>
+            \\                 <label for="first_name">First Name</label>
+            \\                 <input name="first_name" id="first_name" type="text" placeholder="First Name"
+            \\                        value="{[first]s}">
+            \\                 <span class="error">{[errors_first]s}</span>
+            \\             </p>
+            \\             <p>
+            \\                 <label for="last_name">Last Name</label>
+            \\                 <input name="last_name" id="last_name" type="text" placeholder="Last Name"
+            \\                        value="{[last]s}">
+            \\                 <span class="error">{[errors_last]s}</span>
+            \\             </p>
+            \\             <p>
+            \\                 <label for="phone">Phone</label>
+            \\                 <input name="phone" id="phone" type="text" placeholder="Phone" value="{[phone]s}">
+            \\                 <span class="error">{[errors_phone]s}</span>
+            \\             </p>
+            \\         </div>
+            \\         <button>Save</button>
+            \\     </fieldset>
+            \\ </form>
+            \\ 
+            \\ <form action="/contacts/{[id]d}/delete" method="post">
+            \\     <button>Delete Contact</button>
+            \\ </form>
+            \\ 
+            \\ <p>
+            \\     <a href="/contacts">Back</a>
+            \\ </p>
+        , .{
+            .email = params.contact.email orelse "",
+            .errors_email = params.contact.errors.email orelse "",
+            .first = params.contact.first orelse "",
+            .errors_first = params.contact.errors.first orelse "",
+            .last = params.contact.last orelse "",
+            .errors_last = params.contact.errors.last orelse "",
+            .phone = params.contact.phone orelse "",
+            .errors_phone = params.contact.errors.phone orelse "",
             .id = params.contact.id.?,
         });
 
