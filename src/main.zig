@@ -6,10 +6,16 @@ const Allocator = std.mem.Allocator;
 
 const Contact = struct {
     id: u32,
-    first: []const u8,
-    last: []const u8,
-    phone: []const u8,
-    email: []const u8,
+    first: ?[]const u8 = null,
+    last: ?[]const u8 = null,
+    phone: ?[]const u8 = null,
+    email: ?[]const u8 = null,
+    errors: struct {
+        first: ?[]const u8 = null,
+        last: ?[]const u8 = null,
+        phone: ?[]const u8 = null,
+        email: ?[]const u8 = null,
+    } = .{},
 };
 
 pub fn main() !void {
@@ -67,6 +73,7 @@ pub fn main() !void {
     var router = try server.router(.{});
     router.get("/", getIndex, .{});
     router.get("/contacts", getContacts, .{});
+    router.get("/contacts/new", getNewContact, .{});
 
     // TODO(platform): general solution for static files
     router.get("/static/site.css", getStatic, .{
@@ -92,10 +99,10 @@ const App = struct {
         var result: std.ArrayListUnmanaged(Contact) = .empty;
         for (app.contacts.items) |contact| {
             if (query.len == 0 or
-                std.mem.containsAtLeast(u8, contact.first, 1, query) or
-                std.mem.containsAtLeast(u8, contact.last, 1, query) or
-                std.mem.containsAtLeast(u8, contact.email, 1, query) or
-                std.mem.containsAtLeast(u8, contact.phone, 1, query))
+                std.mem.containsAtLeast(u8, contact.first orelse "", 1, query) or
+                std.mem.containsAtLeast(u8, contact.last orelse "", 1, query) or
+                std.mem.containsAtLeast(u8, contact.email orelse "", 1, query) or
+                std.mem.containsAtLeast(u8, contact.phone orelse "", 1, query))
             {
                 try result.append(allocator, contact);
             }
@@ -127,6 +134,12 @@ fn getContacts(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
     });
 }
 
+fn getNewContact(_: *App, _: *httpz.Request, res: *httpz.Response) !void {
+    res.body = try Templates.newContact(res.arena, .{
+        .contact = .{ .id = undefined },
+    });
+}
+
 const Templates = struct {
     fn loop(arena: Allocator, values: []const []const u8, comptime format: []const u8) ![]const u8 {
         var buffer: std.ArrayList(u8) = .init(arena);
@@ -140,6 +153,14 @@ const Templates = struct {
         var buffer: std.ArrayList(u8) = .init(arena);
         for (values) |value| {
             try buffer.writer().print(format, value);
+        }
+        return try buffer.toOwnedSlice();
+    }
+
+    fn loop3(arena: Allocator, comptime T: type, values: []const T, comptime mapper: fn (allocator: Allocator, element: T) error{OutOfMemory}![]const u8) ![]const u8 {
+        var buffer: std.ArrayList(u8) = .init(arena);
+        for (values) |value| {
+            try buffer.appendSlice(try mapper(arena, value));
         }
         return try buffer.toOwnedSlice();
     }
@@ -215,16 +236,79 @@ const Templates = struct {
             \\    </p>
         , .{
             .search_query = params.search_query orelse "",
-            .contacts = try loop2(arena, Contact, params.contacts,
-                \\            <tr>
-                \\                <td>{[email]s}</td>
-                \\                <td>{[first]s}</td>
-                \\                <td>{[last]s}</td>
-                \\                <td>{[phone]s}</td>
-                \\                <td><a href="/contacts/{[id]d}/edit">Edit</a> <a href="/contacts/{[id]d}">View</a></td>
-                \\            </tr>
-            ),
+            .contacts = try loop3(arena, Contact, params.contacts, struct {
+                fn anon(allocator: Allocator, contact: Contact) ![]const u8 {
+                    return try std.fmt.allocPrint(allocator,
+                        \\            <tr>
+                        \\                <td>{[email]s}</td>
+                        \\                <td>{[first]s}</td>
+                        \\                <td>{[last]s}</td>
+                        \\                <td>{[phone]s}</td>
+                        \\                <td><a href="/contacts/{[id]d}/edit">Edit</a> <a href="/contacts/{[id]d}">View</a></td>
+                        \\            </tr>
+                    , .{
+                        .id = contact.id,
+                        .email = contact.email orelse "",
+                        .first = contact.first orelse "",
+                        .last = contact.last orelse "",
+                        .phone = contact.phone orelse "",
+                    });
+                }
+            }.anon),
         });
+        return try layout(arena, .{
+            .flashed_messages = &.{},
+            .content = content,
+        });
+    }
+
+    pub fn newContact(arena: Allocator, params: struct {
+        contact: Contact,
+    }) ![]const u8 {
+        const content = try std.fmt.allocPrint(arena,
+            \\<form action="/contacts/new" method="post">
+            \\    <fieldset>
+            \\        <legend>Contact Values</legend>
+            \\        <div class="table rows">
+            \\            <p>
+            \\                <label for="email">Email</label>
+            \\                <input name="email" id="email" type="text" placeholder="Email" value="{[email]s}">
+            \\                <span class="error">{[errors_email]s}</span>
+            \\            </p>
+            \\            <p>
+            \\                <label for="first_name">First Name</label>
+            \\                <input name="first_name" id="first_name" type="text" placeholder="First Name" value="{[first]s}">
+            \\                <span class="error">{[errors_first]s}</span>
+            \\            </p>
+            \\            <p>
+            \\                <label for="last_name">Last Name</label>
+            \\                <input name="last_name" id="last_name" type="text" placeholder="Last Name" value="{[last]s}">
+            \\                <span class="error">{[errors_last]s}</span>
+            \\            </p>
+            \\            <p>
+            \\                <label for="phone">Phone</label>
+            \\                <input name="phone" id="phone" type="text" placeholder="Phone" value="{[phone]s}">
+            \\                <span class="error">{[errors_phone]s}</span>
+            \\            </p>
+            \\        </div>
+            \\        <button>Save</button>
+            \\    </fieldset>
+            \\</form>
+            \\
+            \\<p>
+            \\    <a href="/contacts">Back</a>
+            \\</p>
+        , .{
+            .email = params.contact.email orelse "",
+            .errors_email = params.contact.errors.email orelse "",
+            .first = params.contact.first orelse "",
+            .errors_first = params.contact.errors.first orelse "",
+            .last = params.contact.last orelse "",
+            .errors_last = params.contact.errors.last orelse "",
+            .phone = params.contact.phone orelse "",
+            .errors_phone = params.contact.errors.phone orelse "",
+        });
+
         return try layout(arena, .{
             .flashed_messages = &.{},
             .content = content,
