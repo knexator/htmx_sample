@@ -75,6 +75,7 @@ pub fn main() !void {
     router.get("/contacts", getContacts, .{});
     router.get("/contacts/new", getNewContact, .{});
     router.post("/contacts/new", postNewContact, .{});
+    router.get("/contacts/:id", viewContact, .{});
 
     // TODO(platform): general solution for static files
     router.get("/static/site.css", getStatic, .{
@@ -88,6 +89,7 @@ pub fn main() !void {
 const App = struct {
     // TODO(platform): this state should be unique to each user
     contacts: std.ArrayList(Contact),
+    // TODO(platform): this is leaking
     pending_flashed_messages: std.ArrayList([]const u8),
 
     pub fn init(gpa: Allocator) App {
@@ -148,6 +150,16 @@ const App = struct {
         }
         return try result.toOwnedSlice(allocator);
     }
+
+    pub fn find(app: *const App, id: u64) ?Contact {
+        for (app.contacts.items) |c| {
+            if (c.id.? == id) {
+                var result = c;
+                result.errors = .{};
+                return result;
+            }
+        } else return null;
+    }
 };
 
 fn getStatic(_: *App, req: *httpz.Request, res: *httpz.Response) !void {
@@ -203,6 +215,15 @@ fn postNewContact(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
             .flashed_messages = try app.pending_flashed_messages.toOwnedSlice(),
         });
     }
+}
+
+fn viewContact(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
+    if (app.find(try std.fmt.parseInt(u64, req.param("id").?, 10))) |contact| {
+        res.body = try Templates.showContact(res.arena, .{
+            .contact = contact,
+            .flashed_messages = try app.pending_flashed_messages.toOwnedSlice(),
+        });
+    } else unreachable;
 }
 
 const Templates = struct {
@@ -374,6 +395,36 @@ const Templates = struct {
             .errors_last = params.contact.errors.last orelse "",
             .phone = params.contact.phone orelse "",
             .errors_phone = params.contact.errors.phone orelse "",
+        });
+
+        return try layout(arena, .{
+            .flashed_messages = params.flashed_messages,
+            .content = content,
+        });
+    }
+
+    pub fn showContact(arena: Allocator, params: struct {
+        contact: Contact,
+        flashed_messages: []const []const u8,
+    }) ![]const u8 {
+        const content = try std.fmt.allocPrint(arena,
+            \\ <h1>{[first]s} {[last]s}</h1>
+            \\ 
+            \\ <div>
+            \\     <div>Phone: {[phone]s}</div>
+            \\     <div>Email: {[email]s}</div>
+            \\ </div>
+            \\ 
+            \\ <p>
+            \\     <a href="/contacts/{[id]d}/edit">Edit</a>
+            \\     <a href="/contacts">Back</a>
+            \\ </p>
+        , .{
+            .email = params.contact.email orelse "",
+            .first = params.contact.first orelse "",
+            .last = params.contact.last orelse "",
+            .phone = params.contact.phone orelse "",
+            .id = params.contact.id.?,
         });
 
         return try layout(arena, .{
